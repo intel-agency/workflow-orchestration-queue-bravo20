@@ -1,0 +1,69 @@
+# OS-APOW Docker Compose Configuration
+# Local development environment with all services
+
+services:
+  # ==========================================================================
+  # Notifier Service (The Ear)
+  # ==========================================================================
+  notifier:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - GITHUB_TOKEN=${GH_ORCHESTRATION_AGENT_TOKEN}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET}
+      - GITHUB_REPO=${GITHUB_REPO:-intel-agency/workflow-orchestration-queue-bravo20}
+      - DEBUG_MODE=${DEBUG_MODE:-false}
+    volumes:
+      - ./src:/app/src:ro  # Mount source for development
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health').raise_for_status()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - os-apow-network
+    restart: unless-stopped
+
+  # ==========================================================================
+  # Sentinel Service (The Brain)
+  # ==========================================================================
+  sentinel:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["python", "-m", "src.orchestrator_sentinel"]
+    environment:
+      - GITHUB_TOKEN=${GH_ORCHESTRATION_AGENT_TOKEN}
+      - GITHUB_REPO=${GITHUB_REPO:-intel-agency/workflow-orchestration-queue-bravo20}
+      - SENTINEL_BOT_LOGIN=${SENTINEL_BOT_LOGIN:-sentinel-bot}
+      - POLLING_INTERVAL=${POLLING_INTERVAL:-60}
+      - HEARTBEAT_INTERVAL=${HEARTBEAT_INTERVAL:-300}
+      - DEBUG_MODE=${DEBUG_MODE:-false}
+    volumes:
+      - ./src:/app/src:ro
+      - sentinel-logs:/var/log/os-apow
+    depends_on:
+      notifier:
+        condition: service_healthy
+    networks:
+      - os-apow-network
+    restart: unless-stopped
+
+  # ==========================================================================
+  # Worker Environment (The Hands) - Shell bridge to DevContainer
+  # ==========================================================================
+  # Note: The actual worker runs in a DevContainer managed by scripts/devcontainer-opencode.sh
+  # This service placeholder can be used for integration testing
+
+networks:
+  os-apow-network:
+    driver: bridge
+    name: os-apow-network
+
+volumes:
+  sentinel-logs:
+    name: os-apow-sentinel-logs
